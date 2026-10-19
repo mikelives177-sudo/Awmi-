@@ -87,7 +87,7 @@ function NotebookApp() {
     <Dialog open={!!editing} onOpenChange={open => { if (!open) setEditing(null); }}><DialogContent className="editor-dialog" aria-describedby={undefined}><DialogTitle className="sr-only">Note editor</DialogTitle>{editing && <Editor key={"id" in editing ? editing.id : "new"} initial={editing} cats={cats} onSave={save} onPin={pin} onDelete={id => { if (confirm("Delete this note? This can't be undone.")) { setNotes(p => p.filter(n => n.id !== id)); setEditing(null); } }} currentNote={"id" in editing ? notes.find(n => n.id === editing.id) : undefined} />}</DialogContent></Dialog>
   </div>;
 }
-function Editor({ initial, cats, onSave, onPin, onDelete, currentNote }: { initial: Note | Draft; cats: Category[]; onSave: (draft: Draft, id?: string) => void; onPin: (id: string) => void; onDelete: (id: string) => void; currentNote?: Note }) {
+function Editor({ initial, cats, onSave, onPin, onDelete, currentNote }: { initial: Note | Draft; cats: Category[]; onSave: (draft: Draft, id?: string) => void; onPin: (id: string) => void; onDelete: (id: string) => void; currentNote: Note | undefined }) {
   const id = "id" in initial ? initial.id : undefined;
   const [draft, setDraft] = useState<Draft>({ title: initial.title, content: initial.content, category: initial.category, tags: initial.tags });
   const [tagInput, setTagInput] = useState("");
