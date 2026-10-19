@@ -1,304 +1,104 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  addTags, categoryExists, relativeTime, sortNotes, type Category, type Note,
-} from "@/lib/notes";
+import { ArrowDownToLine, ArrowRight, ArrowUpRight, Check, ChevronDown, FileText, Folder, Grid2X2, List, Menu, MoreHorizontal, Pin, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { addTags, categoryExists, relativeTime, sortNotes, type Category, type Note } from "@/lib/notes";
+import cover from "@/assets/notebook-still-life.jpg";
 
 export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "Notebook — a quiet place for your notes" },
-      { name: "description", content: "A calm, paper-like notebook to write, tag and organise your notes." },
-      { property: "og:title", content: "Notebook" },
-      { property: "og:description", content: "A calm, paper-like notebook to write, tag and organise your notes." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-    ],
-  }),
-  component: NotebookApp,
+  head: () => ({ meta: [
+    { title: "Margin — a little room for your ideas" },
+    { name: "description", content: "Your personal space for notes, plans, and ideas. Collect your thoughts, find your focus, and make something of them." },
+    { property: "og:title", content: "Margin — a little room for your ideas" },
+    { property: "og:description", content: "A personal notebook for the things you want to remember and the ideas worth coming back to." },
+    { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" },
+  ] }), component: NotebookApp,
 });
-
-const CAT_COLORS = ["#3D5A47", "#7A5C3E", "#4A5D7A", "#6B4A6B", "#5C6B3E", "#7A4A4A"];
-const uid = () => Math.random().toString(36).slice(2, 10);
-
-function usePersisted<T>(key: string, initial: T) {
-  const [v, setV] = useState<T>(initial);
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    try { const r = localStorage.getItem(key); if (r) setV(JSON.parse(r)); } catch {}
-    setReady(true);
-  }, [key]);
-  useEffect(() => { if (ready) localStorage.setItem(key, JSON.stringify(v)); }, [key, v, ready]);
-  return [v, setV] as const;
-}
-
+const CAT_COLORS = ["coral", "blue", "green", "violet", "yellow", "rose"];
+const templates = [
+  { title: "A thought worth keeping", category: "Ideas", color: "blue", content: "What if…\n\nThe idea\n\nWhy it matters\n\nOne small next step", tags: ["ideas"], caption: "Big things start with a small thought.", icon: Sparkles },
+  { title: "A little more clarity", category: "Personal", color: "yellow", content: "On my mind\n\nWhat feels good\n\nWhat I can let go of\n\nSomething to look forward to", tags: ["journal"], caption: "Get it out of your head and onto a page.", icon: FileText },
+  { title: "Make room for a plan", category: "Work", color: "green", content: "The goal\n\nWhat needs to happen\n\nFirst steps\n\nA little reminder", tags: ["plans"], caption: "A fresh page for your next chapter.", icon: ArrowUpRight },
+];
 type Draft = { title: string; content: string; category: string | null; tags: string[] };
-
+function usePersisted<T>(key: string, initial: T) {
+  const [value, setValue] = useState<T>(initial);
+  const [ready, setReady] = useState(false);
+  useEffect(() => { try { const raw = localStorage.getItem(key); if (raw) setValue(JSON.parse(raw)); } catch {} setReady(true); }, [key]);
+  useEffect(() => { if (ready) localStorage.setItem(key, JSON.stringify(value)); }, [key, value, ready]);
+  return [value, setValue] as const;
+}
 function NotebookApp() {
   const [notes, setNotes] = usePersisted<Note[]>("nb.notes", []);
   const [cats, setCats] = usePersisted<Category[]>("nb.cats", []);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [view, setView] = useState<"all" | "pinned">("all");
+  const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Note | Draft | null>(null);
   const [newCat, setNewCat] = useState("");
+  const [catDialog, setCatDialog] = useState(false);
   const [catError, setCatError] = useState("");
-  const [, tick] = useState(0);
-  useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 60000); return () => clearInterval(t); }, []);
-
-  const allTags = useMemo(() => {
-    const m = new Map<string, number>();
-    notes.forEach((n) => n.tags.forEach((t) => m.set(t, (m.get(t) ?? 0) + 1)));
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [notes]);
-
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return sortNotes(notes.filter((n) =>
-      (!catFilter || n.category === catFilter) &&
-      (!tagFilter || n.tags.includes(tagFilter)) &&
-      (!q || n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q)),
-    ));
-  }, [notes, search, catFilter, tagFilter]);
-
-  const selected = notes.find((n) => n.id === selectedId) ?? null;
-
-  const addCategory = (e: React.FormEvent) => {
-    e.preventDefault();
-    const name = newCat.trim();
-    if (!name) return setCatError("Give the category a name.");
-    if (categoryExists(cats, name)) return setCatError(`A category called "${name}" already exists.`);
-    setCats([...cats, { name, color: CAT_COLORS[cats.length % CAT_COLORS.length] ?? "#3D5A47" }]);
-    setNewCat(""); setCatError("");
-  };
-  const deleteCategory = (name: string) => {
-    if (!confirm(`Delete the category "${name}"? Its notes will be kept, without a category.`)) return;
-    setCats(cats.filter((c) => c.name !== name));
-    setNotes(notes.map((n) => (n.category === name ? { ...n, category: null } : n)));
-    if (catFilter === name) setCatFilter(null);
-  };
-
-  const startNew = () => {
-    setSelectedId(null);
-    setDraft({ title: "", content: "", category: catFilter, tags: tagFilter ? [tagFilter] : [] });
-  };
-  const createNote = (d: Draft) => {
+  const [mobileNav, setMobileNav] = useState(false);
+  const tags = useMemo(() => [...new Set(notes.flatMap(n => n.tags))].sort(), [notes]);
+  const visible = useMemo(() => { const q = search.trim().toLowerCase(); return sortNotes(notes.filter(n => (view !== "pinned" || n.pinned) && (!catFilter || n.category === catFilter) && (!tagFilter || n.tags.includes(tagFilter)) && (!q || `${n.title} ${n.content} ${n.tags.join(" ")}`.toLowerCase().includes(q)))); }, [notes, search, view, catFilter, tagFilter]);
+  const openNew = () => setEditing({ title: "", content: "", category: catFilter, tags: tagFilter ? [tagFilter] : [] });
+  const save = (draft: Draft, id?: string) => {
     const now = Date.now();
-    const n: Note = { id: uid(), ...d, title: d.title.trim(), pinned: false, createdAt: now, updatedAt: now };
-    setNotes((p) => [n, ...p]);
-    setDraft(null); setSelectedId(n.id);
+    if (id) setNotes(p => p.map(n => n.id === id ? { ...n, ...draft, updatedAt: now } : n));
+    else { const note: Note = { ...draft, id: crypto.randomUUID(), pinned: false, createdAt: now, updatedAt: now }; setNotes(p => [note, ...p]); setEditing(note); }
   };
-  const updateNote = (id: string, patch: Partial<Note>, touch = true) =>
-    setNotes((p) => p.map((n) => (n.id === id ? { ...n, ...patch, ...(touch ? { updatedAt: Date.now() } : {}) } : n)));
-  const deleteNote = (id: string) => {
-    if (!confirm("Delete this note? This can't be undone.")) return;
-    setNotes((p) => p.filter((n) => n.id !== id));
-    setSelectedId(null);
-  };
-
-  return (
-    <div className="flex min-h-screen flex-col md:h-screen md:flex-row">
-      {/* Sidebar */}
-      <aside className="flex w-full shrink-0 flex-col gap-6 bg-sidebar p-5 text-sidebar-foreground md:w-60 md:overflow-y-auto">
-        <h1 className="font-serif text-2xl font-semibold">Notebook</h1>
-        <button onClick={startNew} className="rounded-md bg-gold px-3 py-2 text-left text-sm font-medium text-gold-foreground hover:opacity-90">
-          + New note
-        </button>
-
-        <section>
-          <h2 className="mb-2 text-xs uppercase tracking-widest text-sidebar-muted">Categories</h2>
-          <ul className="space-y-0.5 text-sm">
-            <li>
-              <button onClick={() => setCatFilter(null)} className={`flex w-full justify-between rounded px-2 py-1 ${!catFilter ? "bg-sidebar-accent" : "hover:bg-sidebar-accent"}`}>
-                <span>All notes</span><span className="text-sidebar-muted">{notes.length}</span>
-              </button>
-            </li>
-            {cats.map((c) => (
-              <li key={c.name} className="group flex items-center">
-                <button onClick={() => setCatFilter(catFilter === c.name ? null : c.name)} className={`flex flex-1 items-center justify-between rounded px-2 py-1 ${catFilter === c.name ? "bg-sidebar-accent" : "hover:bg-sidebar-accent"}`}>
-                  <span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: c.color }} />{c.name}</span>
-                  <span className="text-sidebar-muted">{notes.filter((n) => n.category === c.name).length}</span>
-                </button>
-                <button aria-label={`Delete category ${c.name}`} onClick={() => deleteCategory(c.name)} className="ml-1 px-1 text-sidebar-muted opacity-0 hover:text-sidebar-foreground group-hover:opacity-100">×</button>
-              </li>
-            ))}
-          </ul>
-          <form onSubmit={addCategory} className="mt-2">
-            <input value={newCat} onChange={(e) => { setNewCat(e.target.value); setCatError(""); }} placeholder="New category…"
-              className="w-full border-b border-sidebar-border bg-transparent px-2 py-1 text-sm placeholder:text-sidebar-muted focus:outline-none focus:border-sidebar-foreground" />
-            {catError && <p role="alert" className="mt-1 rounded bg-destructive px-2 py-1 text-xs text-destructive-foreground">{catError}</p>}
-          </form>
-        </section>
-
-        <section>
-          <h2 className="mb-2 text-xs uppercase tracking-widest text-sidebar-muted">Tags</h2>
-          {allTags.length === 0 ? <p className="text-xs text-sidebar-muted">Tags you add to notes appear here.</p> : (
-            <div className="flex flex-wrap gap-1.5">
-              {allTags.map(([t, c]) => (
-                <button key={t} onClick={() => setTagFilter(tagFilter === t ? null : t)}
-                  className={`rounded-full border px-2 py-0.5 text-xs ${tagFilter === t ? "border-gold bg-gold text-gold-foreground" : "border-gold text-gold hover:bg-sidebar-accent"}`}>
-                  #{t} <span className="opacity-70">{c}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-      </aside>
-
-      {/* List */}
-      <section className="flex w-full shrink-0 flex-col border-b bg-surface md:w-[300px] md:border-b-0 md:border-r">
-        <div className="border-b p-3">
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search notes…"
-            className="w-full rounded-md border bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
-          <p className="mt-2 text-xs text-muted-foreground">
-            {visible.length} {visible.length === 1 ? "note" : "notes"}
-            {catFilter && <> in <b>{catFilter}</b></>}{tagFilter && <> tagged <b className="text-gold">#{tagFilter}</b></>}
-          </p>
-        </div>
-        <ul className="max-h-96 overflow-y-auto md:max-h-none md:flex-1">
-          {visible.length === 0 && (
-            <li className="p-6 text-sm text-muted-foreground">
-              {notes.length === 0 ? "No notes here yet. Start one from the sidebar." : "Nothing matches. Try a different search or clear the filter."}
-            </li>
-          )}
-          {visible.map((n) => {
-            const cat = cats.find((c) => c.name === n.category);
-            const active = n.id === selectedId;
-            return (
-              <li key={n.id} className="border-b">
-                <button onClick={() => { setDraft(null); setSelectedId(n.id); }}
-                  className={`block w-full border-l-4 px-4 py-3 text-left ${active ? "border-l-primary bg-accent" : "border-l-transparent hover:bg-background/50"}`}>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="truncate font-serif font-semibold">{n.pinned && "📌 "}{n.title}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(n.updatedAt)}</span>
-                  </div>
-                  {n.content && <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{n.content}</p>}
-                  {(cat || n.tags.length > 0) && (
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {cat && <span className="rounded px-1.5 py-0.5 text-[11px] text-primary-foreground" style={{ background: cat.color }}>{cat.name}</span>}
-                      {n.tags.map((t) => <span key={t} className="rounded-full border border-gold px-1.5 text-[11px] text-gold">#{t}</span>)}
-                    </div>
-                  )}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
-
-      {/* Editor */}
-      <main className="flex-1 overflow-y-auto bg-surface md:bg-background">
-        {draft ? (
-          <Editor key="new" initial={draft} cats={cats} isNew
-            onCreate={createNote} onCancel={() => setDraft(null)} />
-        ) : selected ? (
-          <Editor key={selected.id} initial={selected} cats={cats} note={selected}
-            onSave={(p) => updateNote(selected.id, p)}
-            onPin={() => updateNote(selected.id, { pinned: !selected.pinned }, false)}
-            onDelete={() => deleteNote(selected.id)} />
-        ) : (
-          <div className="flex h-full min-h-64 items-center justify-center p-8 text-center text-muted-foreground">
-            <p>{notes.length === 0 ? "No notes here yet. Start one from the sidebar." : "Pick a note from the list, or start a new one from the sidebar."}</p>
-          </div>
-        )}
+  const pin = (id: string) => setNotes(p => p.map(n => n.id === id ? { ...n, pinned: !n.pinned } : n));
+  const navigate = (next: "all" | "pinned", category: string | null = null) => { setView(next); setCatFilter(category); setTagFilter(null); setMobileNav(false); };
+  const addCategory = (e: React.FormEvent) => { e.preventDefault(); const name = newCat.trim(); if (!name) return setCatError("Give your collection a name."); if (categoryExists(cats, name)) return setCatError("That collection already exists."); setCats(p => [...p, { name, color: CAT_COLORS[p.length % CAT_COLORS.length] ?? "coral" }]); setNewCat(""); setCatError(""); setCatDialog(false); };
+  const removeCategory = (name: string) => { if (!confirm(`Delete “${name}”? Your notes will be kept.`)) return; setCats(p => p.filter(c => c.name !== name)); setNotes(p => p.map(n => n.category === name ? { ...n, category: null } : n)); if (catFilter === name) setCatFilter(null); };
+  const title = catFilter || (view === "pinned" ? "Pinned notes" : "All notes");
+  return <div className="workspace">
+    <aside className={`sidebar ${mobileNav ? "is-open" : ""}`}>
+      <a href="/" className="wordmark"><span className="brand-mark">m<span>.</span></span>margin<span className="wordmark-period">.</span></a>
+      <div className="workspace-name"><span className="workspace-avatar">M</span><span>My workspace<small>Personal notebook</small></span><ChevronDown size={15} /></div>
+      <Button onClick={openNew} className="new-note-button"><Plus size={18} /> New note <span className="ml-auto opacity-60"><ArrowUpRight size={15} /></span></Button>
+      <div className="nav-label">LIBRARY</div>
+      <Button variant="ghost" className={`nav-item ${view === "all" && !catFilter ? "active" : ""}`} onClick={() => navigate("all")}><FileText />All notes<span className="nav-count">{notes.length}</span></Button>
+      <Button variant="ghost" className={`nav-item ${view === "pinned" ? "active" : ""}`} onClick={() => navigate("pinned")}><Pin />Pinned<span className="nav-count">{notes.filter(n => n.pinned).length}</span></Button>
+      <div className="nav-label collection-label">COLLECTIONS<Button variant="ghost" size="icon" title="New collection" aria-label="New collection" onClick={() => setCatDialog(true)}><Plus /></Button></div>
+      {cats.length === 0 && <div className="no-collections">A place for every kind of thought.</div>}
+      {cats.map((c, i) => <div key={c.name} className="collection-row group"><Button variant="ghost" className={`nav-item ${catFilter === c.name ? "active" : ""}`} onClick={() => navigate("all", c.name)}><span className={`collection-dot tone-${CAT_COLORS[i % CAT_COLORS.length]}`} /> <span className="truncate">{c.name}</span><span className="nav-count">{notes.filter(n => n.category === c.name).length}</span></Button><Button variant="ghost" size="icon" aria-label={`Delete collection ${c.name}`} className="collection-delete" onClick={() => removeCategory(c.name)}><X /></Button></div>)}
+      {tags.length > 0 && <><div className="nav-label mt-7">YOUR TAGS</div><div className="sidebar-tags">{tags.map(t => <Button key={t} variant="ghost" size="sm" className={tagFilter === t ? "tag-selected" : ""} onClick={() => setTagFilter(tagFilter === t ? null : t)}>#{t}</Button>)}</div></>}
+      <div className="sidebar-bottom"><div className="little-note"><Sparkles size={18} /><p>Good ideas need<br />a little space.</p><span>Make yourself at home.</span></div><div className="storage-status"><span />Saved on this device<MoreHorizontal size={16} /></div></div>
+    </aside>
+    <div className="main-shell">
+      <header className="topbar"><div className="flex items-center gap-3"><Button variant="ghost" size="icon" className="mobile-menu" aria-label="Toggle navigation" onClick={() => setMobileNav(!mobileNav)}><Menu /></Button><span className="breadcrumb">My workspace <span>/</span> <b>{title}</b></span></div><div className="topbar-end"><span>A little room for your ideas</span><span className="user-avatar">M</span></div></header>
+      <main className="main-content">
+        <section className="welcome-banner"><img src={cover} alt="An open notebook, a blue pencil and folded coral paper on a sunlit desk" width={1536} height={512} /><div className="welcome-copy"><div className="eyebrow">YOUR PERSONAL NOTEBOOK</div><h1>A little room.<br />A lot of possibilities.</h1><p>For passing thoughts and things worth keeping.</p><Button variant="ghost" onClick={openNew} className="banner-cta">Make a little space <ArrowRight size={16} /></Button></div><span className="banner-caption">THINK IT. KEEP IT. MAKE IT.</span></section>
+        <div className="collection-heading"><div><div className="section-eyebrow">THE THINGS ON YOUR MIND</div><h2>{title}<span>{visible.length}</span></h2></div><Button onClick={openNew}><Plus />New note</Button></div>
+        <div className="collection-toolbar"><label className="search-field"><Search size={17} /><input aria-label="Search notes" value={search} onChange={e => setSearch(e.target.value)} placeholder="Find a thought…" />{search && <Button variant="ghost" size="icon" aria-label="Clear search" onClick={() => setSearch("")}><X /></Button>}</label><div className="toolbar-right"><span className="sort-label">Last edited <ChevronDown size={14} /></span><div className="view-toggle"><Button variant="ghost" size="icon" aria-label="Grid view" aria-pressed={layout === "grid"} className={layout === "grid" ? "selected" : ""} onClick={() => setLayout("grid")}><Grid2X2 /></Button><Button variant="ghost" size="icon" aria-label="List view" aria-pressed={layout === "list"} className={layout === "list" ? "selected" : ""} onClick={() => setLayout("list")}><List /></Button></div></div></div>
+        {tagFilter && <div className="filter-line">Tagged #{tagFilter}<Button variant="ghost" size="icon" aria-label="Clear tag filter" onClick={() => setTagFilter(null)}><X /></Button></div>}
+        {visible.length > 0 ? <div className={`note-collection ${layout}`}>
+          {visible.map((n, i) => <article key={n.id} className={`note-card tone-${CAT_COLORS[n.category ? Math.max(0, cats.findIndex(c => c.name === n.category)) % CAT_COLORS.length : i % CAT_COLORS.length]}`}><div className="note-card-top"><span><Folder size={13} />{n.category || "Loose thoughts"}</span><Button variant="ghost" size="icon" aria-label={`${n.pinned ? "Unpin" : "Pin"} ${n.title}`} onClick={() => pin(n.id)} className={n.pinned ? "is-pinned" : ""}><Pin size={15} /></Button></div><Button variant="ghost" className="note-open" onClick={() => setEditing(n)}><h3>{n.title}</h3><p>{n.content || "A fresh page, waiting for a thought."}</p></Button><div className="note-card-footer"><div className="note-tags">{n.tags.slice(0, 2).map(t => <span key={t}>#{t}</span>)}</div><span>{relativeTime(n.updatedAt)}</span></div></article>)}
+          <Button variant="ghost" className="add-note-card" onClick={openNew}><span className="add-symbol"><Plus /></span><strong>Room for one more</strong><span>Start with a thought.</span></Button>
+        </div> : notes.length === 0 && !search && view === "all" && !catFilter && !tagFilter ? <><div className="starter-intro"><span>A blank page is a good beginning.</span><span>Pick a starting point <ArrowDownToLine size={14} /></span></div><div className="note-collection grid">{templates.map(t => <article className={`note-card template-card tone-${t.color}`} key={t.title}><div className="note-card-top"><span><t.icon size={15} />{t.category}</span><span>STARTER</span></div><Button variant="ghost" className="note-open" onClick={() => setEditing({ title: t.title, content: t.content, category: null, tags: t.tags })}><h3>{t.title}</h3><p>{t.caption}</p><span className="template-link">Make it yours <ArrowUpRight size={16} /></span></Button></article>)}</div></> : <div className="empty-results"><Search size={28} /><h3>{view === "pinned" ? "Keep the good ones close." : "No thoughts found."}</h3><p>{view === "pinned" ? "Your pinned notes will gather here." : "Try another search or clear your filters."}</p><Button variant="outline" onClick={() => { setSearch(""); navigate("all"); }}>Back to all notes</Button></div>}
+        <footer className="collection-footer"><span><span className="footer-dot" /> A small space for a busy mind.</span><span>Made for the everyday.</span></footer>
       </main>
     </div>
-  );
+    <Dialog open={catDialog} onOpenChange={setCatDialog}><DialogContent className="bg-surface"><DialogTitle>Give your thoughts a home.</DialogTitle><DialogDescription>A new collection</DialogDescription><form onSubmit={addCategory}><input autoFocus aria-label="Collection name" placeholder="e.g. Ideas, Work, Life…" value={newCat} onChange={e => { setNewCat(e.target.value); setCatError(""); }} className="collection-input" />{catError && <p role="alert" className="text-destructive text-sm my-2">{catError}</p>}<Button type="submit" className="mt-4"><Plus />Create collection</Button></form></DialogContent></Dialog>
+    <Dialog open={!!editing} onOpenChange={open => { if (!open) setEditing(null); }}><DialogContent className="editor-dialog" aria-describedby={undefined}><DialogTitle className="sr-only">Note editor</DialogTitle>{editing && <Editor key={"id" in editing ? editing.id : "new"} initial={editing} cats={cats} onSave={save} onPin={pin} onDelete={id => { if (confirm("Delete this note? This can't be undone.")) { setNotes(p => p.filter(n => n.id !== id)); setEditing(null); } }} currentNote={"id" in editing ? notes.find(n => n.id === editing.id) : undefined} />}</DialogContent></Dialog>
+  </div>;
 }
-
-function Editor(props: {
-  initial: Draft; cats: Category[]; isNew?: boolean; note?: Note;
-  onCreate?: (d: Draft) => void; onCancel?: () => void;
-  onSave?: (p: Partial<Note>) => void; onPin?: () => void; onDelete?: () => void;
-}) {
-  const { initial, cats, isNew, note } = props;
-  const [d, setD] = useState<Draft>({ title: initial.title, content: initial.content, category: initial.category, tags: initial.tags });
+function Editor({ initial, cats, onSave, onPin, onDelete, currentNote }: { initial: Note | Draft; cats: Category[]; onSave: (draft: Draft, id?: string) => void; onPin: (id: string) => void; onDelete: (id: string) => void; currentNote?: Note }) {
+  const id = "id" in initial ? initial.id : undefined;
+  const [draft, setDraft] = useState<Draft>({ title: initial.title, content: initial.content, category: initial.category, tags: initial.tags });
   const [tagInput, setTagInput] = useState("");
-  const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [status, setStatus] = useState(id ? "Saved on this device" : "New note");
   const [error, setError] = useState("");
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const saveRef = useRef(props.onSave);
-  saveRef.current = props.onSave;
-
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-
-  const change = (patch: Partial<Draft>) => {
-    const next = { ...d, ...patch };
-    setD(next);
-    if (isNew) return;
-    if (!next.title.trim()) { setError("A note needs a title."); setStatus("idle"); if (timer.current) clearTimeout(timer.current); return; }
-    setError(""); setStatus("saving");
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      saveRef.current?.({ ...next, title: next.title.trim() });
-      setStatus("saved");
-    }, 600);
-  };
-
-  const commitTags = (raw: string) => {
-    const tags = addTags(d.tags, raw);
-    setTagInput("");
-    if (tags.length !== d.tags.length) change({ tags });
-  };
-
-  const create = () => {
-    if (!d.title.trim()) return setError("A note needs a title.");
-    commitTags(tagInput);
-    props.onCreate?.({ ...d, tags: addTags(d.tags, tagInput) });
-  };
-
-  return (
-    <div className="mx-auto max-w-3xl px-6 py-8 md:px-12">
-      <div className="mb-6 flex flex-wrap items-center gap-3 border-b pb-3 text-sm">
-        <select value={d.category ?? ""} onChange={(e) => change({ category: e.target.value || null })}
-          className="rounded-md border bg-surface px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring">
-          <option value="">No category</option>
-          {cats.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
-        </select>
-        {!isNew && note && (
-          <>
-            <button onClick={props.onPin} className={`rounded-md border px-2 py-1 ${note.pinned ? "border-primary bg-primary text-primary-foreground" : "hover:bg-accent"}`}>
-              {note.pinned ? "Pinned" : "Pin"}
-            </button>
-            <span className="text-xs text-muted-foreground" aria-live="polite">
-              {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : `Edited ${relativeTime(note.updatedAt)}`}
-            </span>
-            <button onClick={props.onDelete} className="ml-auto rounded-md bg-destructive px-3 py-1 text-destructive-foreground hover:opacity-90">Delete</button>
-          </>
-        )}
-      </div>
-
-      <input value={d.title} onChange={(e) => change({ title: e.target.value })} placeholder="Untitled note" autoFocus={isNew}
-        className="w-full rounded-md border border-transparent bg-transparent px-1 font-serif text-[28px] font-semibold placeholder:text-muted-foreground/60 focus:border-border focus:bg-surface focus:outline-none focus:ring-2 focus:ring-ring" />
-      {error && <p role="alert" className="mt-1 px-1 text-sm text-destructive">{error}</p>}
-
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 px-1">
-        {d.tags.map((t) => (
-          <span key={t} className="inline-flex items-center gap-1 rounded-full border border-gold px-2 py-0.5 text-xs text-gold">
-            #{t}
-            <button aria-label={`Remove tag ${t}`} onClick={() => change({ tags: d.tags.filter((x) => x !== t) })} className="hover:text-foreground">×</button>
-          </span>
-        ))}
-        <input value={tagInput} placeholder="Add tag…"
-          onChange={(e) => { const v = e.target.value; if (v.includes(",")) commitTags(v); else setTagInput(v); }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") { e.preventDefault(); commitTags(tagInput); }
-            if (e.key === "Backspace" && !tagInput && d.tags.length) change({ tags: d.tags.slice(0, -1) });
-          }}
-          className="min-w-24 flex-1 bg-transparent py-0.5 text-xs placeholder:text-muted-foreground focus:outline-none" />
-      </div>
-
-      <textarea value={d.content} onChange={(e) => change({ content: e.target.value })} placeholder="Start writing…"
-        className="mt-6 min-h-[50vh] w-full resize-none border-t bg-transparent px-1 pt-4 leading-7 placeholder:text-muted-foreground focus:outline-none"
-        style={{ backgroundImage: "linear-gradient(transparent 27px, var(--border) 28px)", backgroundSize: "100% 28px", backgroundPositionY: "15px" }} />
-
-      {isNew && (
-        <div className="mt-4 flex gap-2">
-          <button onClick={create} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">Create note</button>
-          <button onClick={props.onCancel} className="rounded-md border px-4 py-2 text-sm hover:bg-accent">Cancel</button>
-        </div>
-      )}
-    </div>
-  );
+  const pending = useRef<Draft | null>(null);
+  const saveRef = useRef(onSave); saveRef.current = onSave;
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => { clearTimeout(timer.current); if (pending.current && id) saveRef.current(pending.current, id); }, [id]);
+  const change = (patch: Partial<Draft>) => { const next = { ...draft, ...patch }; setDraft(next); setError(""); if (!id) return; clearTimeout(timer.current); if (!next.title.trim()) { pending.current = null; setError("Give this thought a title."); return; } pending.current = { ...next, title: next.title.trim() }; setStatus("Saving…"); timer.current = setTimeout(() => { if (pending.current) { saveRef.current(pending.current, id); pending.current = null; setStatus("Saved on this device"); } }, 600); };
+  const commitTags = () => { if (tagInput.trim()) change({ tags: addTags(draft.tags, tagInput) }); setTagInput(""); };
+  const exportNote = () => { const blob = new Blob([`${draft.title}\n\n${draft.content}\n\n${draft.tags.map(t => `#${t}`).join(" ")}`], { type: "text/plain" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `${draft.title || "note"}.txt`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); };
+  return <div className="editor-inner"><div className="editor-top"><span className="editor-label"><FileText size={15} />{id ? "YOUR NOTE" : "A FRESH PAGE"}</span><div className="flex gap-1">{id && <><Button variant="ghost" size="icon" aria-label={currentNote?.pinned ? "Unpin note" : "Pin note"} title="Pin note" onClick={() => onPin(id)} className={currentNote?.pinned ? "text-primary" : ""}><Pin /></Button><Button variant="ghost" size="icon" aria-label="Delete note" title="Delete note" onClick={() => onDelete(id)}><Trash2 /></Button></>}<Button variant="ghost" size="icon" aria-label="Download note" title="Download note" onClick={exportNote}><ArrowDownToLine /></Button></div></div><input aria-label="Note title" placeholder="A thought starts here…" value={draft.title} onChange={e => change({ title: e.target.value })} className="editor-title" autoFocus={!id} />{error && <p role="alert" className="text-sm text-destructive">{error}</p>}<div className="editor-meta"><select aria-label="Note collection" value={draft.category ?? ""} onChange={e => change({ category: e.target.value || null })}><option value="">Loose thoughts</option>{cats.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}</select><span className="meta-divider" />{draft.tags.map(t => <span className="editor-tag" key={t}>#{t}<Button variant="ghost" size="icon" aria-label={`Remove tag ${t}`} onClick={() => change({ tags: draft.tags.filter(x => x !== t) })}><X /></Button></span>)}<input aria-label="Add tags" placeholder="+ Add tag" value={tagInput} onChange={e => setTagInput(e.target.value)} onBlur={commitTags} onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); commitTags(); } }} /></div><textarea aria-label="Note content" value={draft.content} onChange={e => change({ content: e.target.value })} placeholder="Let your thoughts find their way onto the page…" className="editor-body" /><div className="editor-bottom"><span aria-live="polite"><Check size={14} />{status}</span><span>{draft.content.trim() ? draft.content.trim().split(/\s+/).length : 0} words</span>{!id && <Button onClick={() => { if (!draft.title.trim()) return setError("Give this thought a title."); onSave({ ...draft, title: draft.title.trim(), tags: addTags(draft.tags, tagInput) }); }}>Create note<ArrowRight /></Button>}</div></div>;
 }
