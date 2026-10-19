@@ -15,23 +15,25 @@ export function normalizeTag(raw: string): string {
 }
 
 export function addTags(existing: string[], input: string): string[] {
-  const out = [...existing];
-  for (const part of input.split(",")) {
+  const out: string[] = [];
+  for (const part of [...existing, ...input.split(",")]) {
     const t = normalizeTag(part);
     if (t && !out.includes(t)) out.push(t);
   }
   return out;
 }
 
-export function sortNotes(notes: Note[]): Note[] {
-  return [...notes].sort((a, b) =>
-    a.pinned !== b.pinned ? (a.pinned ? -1 : 1) : b.updatedAt - a.updatedAt,
-  );
+export function sortNotes(notes: Note[], order: "updated" | "oldest" | "title" = "updated"): Note[] {
+  return [...notes].sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    if (order === "title") return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+    return order === "oldest" ? a.updatedAt - b.updatedAt : b.updatedAt - a.updatedAt;
+  });
 }
 
 export function categoryExists(cats: Category[], name: string): boolean {
   const n = name.trim().toLowerCase();
-  return cats.some((c) => c.name.toLowerCase() === n);
+  return cats.some((c) => c.name.trim().toLowerCase() === n);
 }
 
 export function relativeTime(ts: number, now = Date.now()): string {

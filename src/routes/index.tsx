@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownToLine, ArrowRight, ArrowUpRight, Check, ChevronDown, FileText, Folder, Grid2X2, List, Menu, MoreHorizontal, Pin, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDownToLine, ArrowRight, ArrowUpRight, Check, ChevronDown, FileText, Folder, Grid2X2, HardDrive, List, Menu, Moon, MoreHorizontal, Pin, Plus, Search, Sparkles, Sun, Trash2, UserRound, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { addTags, categoryExists, relativeTime, sortNotes, type Category, type Note } from "@/lib/notes";
 import cover from "@/assets/notebook-still-life.jpg";
 
@@ -26,14 +27,16 @@ function usePersisted<T>(key: string, initial: T) {
   const [value, setValue] = useState<T>(initial);
   const [ready, setReady] = useState(false);
   useEffect(() => { try { const raw = localStorage.getItem(key); if (raw) setValue(JSON.parse(raw)); } catch {} setReady(true); }, [key]);
-  useEffect(() => { if (ready) localStorage.setItem(key, JSON.stringify(value)); }, [key, value, ready]);
+  useEffect(() => { if (ready) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} } }, [key, value, ready]);
   return [value, setValue] as const;
 }
 function NotebookApp() {
   const [notes, setNotes] = usePersisted<Note[]>("nb.notes", []);
   const [cats, setCats] = usePersisted<Category[]>("nb.cats", []);
+  const [theme, setTheme] = usePersisted<"light" | "dark">("nb.theme", "light");
   const [view, setView] = useState<"all" | "pinned">("all");
   const [layout, setLayout] = useState<"grid" | "list">("grid");
+  const [sortOrder, setSortOrder] = useState<"updated" | "oldest" | "title">("updated");
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
@@ -42,23 +45,45 @@ function NotebookApp() {
   const [catDialog, setCatDialog] = useState(false);
   const [catError, setCatError] = useState("");
   const [mobileNav, setMobileNav] = useState(false);
+  const [storageDialog, setStorageDialog] = useState(false);
+  useEffect(() => { document.documentElement.classList.toggle("dark", theme === "dark"); }, [theme]);
   const tags = useMemo(() => [...new Set(notes.flatMap(n => n.tags))].sort(), [notes]);
-  const visible = useMemo(() => { const q = search.trim().toLowerCase(); return sortNotes(notes.filter(n => (view !== "pinned" || n.pinned) && (!catFilter || n.category === catFilter) && (!tagFilter || n.tags.includes(tagFilter)) && (!q || `${n.title} ${n.content} ${n.tags.join(" ")}`.toLowerCase().includes(q)))); }, [notes, search, view, catFilter, tagFilter]);
+  const visible = useMemo(() => { const q = search.trim().toLowerCase(); return sortNotes(notes.filter(n => (view !== "pinned" || n.pinned) && (!catFilter || n.category === catFilter) && (!tagFilter || n.tags.includes(tagFilter)) && (!q || `${n.title} ${n.content} ${n.category ?? ""} ${n.tags.join(" ")}`.toLowerCase().includes(q))), sortOrder); }, [notes, search, view, catFilter, tagFilter, sortOrder]);
   const openNew = () => setEditing({ title: "", content: "", category: catFilter, tags: tagFilter ? [tagFilter] : [] });
   const save = (draft: Draft, id?: string) => {
     const now = Date.now();
     if (id) setNotes(p => p.map(n => n.id === id ? { ...n, ...draft, updatedAt: now } : n));
     else { const note: Note = { ...draft, id: crypto.randomUUID(), pinned: false, createdAt: now, updatedAt: now }; setNotes(p => [note, ...p]); setEditing(note); }
   };
-  const pin = (id: string) => setNotes(p => p.map(n => n.id === id ? { ...n, pinned: !n.pinned } : n));
+  const pin = (id: string) => setNotes(p => p.map(n => n.id === id ? { ...n, pinned: !n.pinned, updatedAt: Date.now() } : n));
   const navigate = (next: "all" | "pinned", category: string | null = null) => { setView(next); setCatFilter(category); setTagFilter(null); setMobileNav(false); };
   const addCategory = (e: React.FormEvent) => { e.preventDefault(); const name = newCat.trim(); if (!name) return setCatError("Give your collection a name."); if (categoryExists(cats, name)) return setCatError("That collection already exists."); setCats(p => [...p, { name, color: CAT_COLORS[p.length % CAT_COLORS.length] ?? "coral" }]); setNewCat(""); setCatError(""); setCatDialog(false); };
-  const removeCategory = (name: string) => { if (!confirm(`Delete “${name}”? Your notes will be kept.`)) return; setCats(p => p.filter(c => c.name !== name)); setNotes(p => p.map(n => n.category === name ? { ...n, category: null } : n)); if (catFilter === name) setCatFilter(null); };
+  const removeCategory = (name: string) => { if (!confirm(`Delete “${name}”? Your notes will be kept.`)) return; setCats(p => p.filter(c => c.name !== name)); setNotes(p => p.map(n => n.category === name ? { ...n, category: null, updatedAt: Date.now() } : n)); if (catFilter === name) setCatFilter(null); };
+  const exportBackup = () => {
+    const backup = { format: "margin-notebook", version: 1, exportedAt: new Date().toISOString(), notes, categories: cats, theme };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `margin-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   const title = catFilter || (view === "pinned" ? "Pinned notes" : "All notes");
   return <div className="workspace">
     <aside className={`sidebar ${mobileNav ? "is-open" : ""}`}>
       <a href="/" className="wordmark"><span className="brand-mark">m<span>.</span></span>margin<span className="wordmark-period">.</span></a>
-      <div className="workspace-name"><span className="workspace-avatar">M</span><span>My workspace<small>Personal notebook</small></span><ChevronDown size={15} /></div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild><button type="button" className="workspace-name" aria-label="Open workspace menu"><span className="workspace-avatar">M</span><span>My workspace<small>Personal notebook</small></span><ChevronDown size={15} /></button></DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuLabel>My workspace</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => navigate("all")}><FileText />All notes<span className="ml-auto text-muted-foreground">{notes.length}</span></DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => navigate("pinned")}><Pin />Pinned notes<span className="ml-auto text-muted-foreground">{notes.filter(n => n.pinned).length}</span></DropdownMenuItem>
+          {cats.length > 0 && <><DropdownMenuSeparator />{cats.map(c => <DropdownMenuItem key={c.name} onSelect={() => navigate("all", c.name)}><Folder />{c.name}</DropdownMenuItem>)}</>}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setCatDialog(true)}><Plus />New collection</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <Button onClick={openNew} className="new-note-button"><Plus size={18} /> New note <span className="ml-auto opacity-60"><ArrowUpRight size={15} /></span></Button>
       <div className="nav-label">LIBRARY</div>
       <Button variant="ghost" className={`nav-item ${view === "all" && !catFilter ? "active" : ""}`} onClick={() => navigate("all")}><FileText />All notes<span className="nav-count">{notes.length}</span></Button>
@@ -67,14 +92,34 @@ function NotebookApp() {
       {cats.length === 0 && <div className="no-collections">A place for every kind of thought.</div>}
       {cats.map((c, i) => <div key={c.name} className="collection-row group"><Button variant="ghost" className={`nav-item ${catFilter === c.name ? "active" : ""}`} onClick={() => navigate("all", c.name)}><span className={`collection-dot tone-${CAT_COLORS[i % CAT_COLORS.length]}`} /> <span className="truncate">{c.name}</span><span className="nav-count">{notes.filter(n => n.category === c.name).length}</span></Button><Button variant="ghost" size="icon" aria-label={`Delete collection ${c.name}`} className="collection-delete" onClick={() => removeCategory(c.name)}><X /></Button></div>)}
       {tags.length > 0 && <><div className="nav-label mt-7">YOUR TAGS</div><div className="sidebar-tags">{tags.map(t => <Button key={t} variant="ghost" size="sm" className={tagFilter === t ? "tag-selected" : ""} onClick={() => setTagFilter(tagFilter === t ? null : t)}>#{t}</Button>)}</div></>}
-      <div className="sidebar-bottom"><div className="little-note"><Sparkles size={18} /><p>Good ideas need<br />a little space.</p><span>Make yourself at home.</span></div><div className="storage-status"><span />Saved on this device<MoreHorizontal size={16} /></div></div>
+      <div className="sidebar-bottom"><div className="little-note"><Sparkles size={18} /><p>Good ideas need<br />a little space.</p><span>Make yourself at home.</span></div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild><button type="button" className="storage-status" aria-label="Open local storage options"><span />Saved on this device<MoreHorizontal size={16} /></button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end" side="top">
+            <DropdownMenuLabel>On this device</DropdownMenuLabel>
+            <DropdownMenuItem onSelect={exportBackup}><ArrowDownToLine />Download notebook backup</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setStorageDialog(true)}><HardDrive />Storage details</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </aside>
     <div className="main-shell">
-      <header className="topbar"><div className="flex items-center gap-3"><Button variant="ghost" size="icon" className="mobile-menu" aria-label="Toggle navigation" onClick={() => setMobileNav(!mobileNav)}><Menu /></Button><span className="breadcrumb">My workspace <span>/</span> <b>{title}</b></span></div><div className="topbar-end"><span>A little room for your ideas</span><span className="user-avatar">M</span></div></header>
+      <header className="topbar"><div className="flex items-center gap-3"><Button variant="ghost" size="icon" className="mobile-menu" aria-label="Toggle navigation" onClick={() => setMobileNav(!mobileNav)}><Menu /></Button><span className="breadcrumb">My workspace <span>/</span> <b>{title}</b></span></div><div className="topbar-end"><span>A little room for your ideas</span><Button variant="ghost" size="icon" className="theme-toggle" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun /> : <Moon />}</Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild><button type="button" className="user-avatar" aria-label="Open profile menu"><UserRound size={16} /></button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Local profile</DropdownMenuLabel>
+            <DropdownMenuItem disabled className="text-xs">Notes stay in this browser</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun /> : <Moon />}{theme === "dark" ? "Light appearance" : "Dark appearance"}</DropdownMenuItem>
+            <DropdownMenuItem onSelect={exportBackup}><ArrowDownToLine />Download notebook backup</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div></header>
       <main className="main-content">
         <section className="welcome-banner"><img src={cover} alt="An open notebook with a green pencil, stacked books and a brass paperclip on a sunlit linen desk" width={1536} height={512} /><div className="welcome-copy"><div className="eyebrow">YOUR PERSONAL NOTEBOOK</div><h1>A little room.<br />A lot of possibilities.</h1><p>For passing thoughts and things worth keeping.</p><Button variant="ghost" onClick={openNew} className="banner-cta">Make a little space <ArrowRight size={16} /></Button></div><span className="banner-caption">THINK IT. KEEP IT. MAKE IT.</span></section>
         <div className="collection-heading"><div><div className="section-eyebrow">THE THINGS ON YOUR MIND</div><h2>{title}<span>{visible.length}</span></h2></div><Button onClick={openNew}><Plus />New note</Button></div>
-        <div className="collection-toolbar"><label className="search-field"><Search size={17} /><input aria-label="Search notes" value={search} onChange={e => setSearch(e.target.value)} placeholder="Find a thought…" />{search && <Button variant="ghost" size="icon" aria-label="Clear search" onClick={() => setSearch("")}><X /></Button>}</label><div className="toolbar-right"><span className="sort-label">Last edited <ChevronDown size={14} /></span><div className="view-toggle"><Button variant="ghost" size="icon" aria-label="Grid view" aria-pressed={layout === "grid"} className={layout === "grid" ? "selected" : ""} onClick={() => setLayout("grid")}><Grid2X2 /></Button><Button variant="ghost" size="icon" aria-label="List view" aria-pressed={layout === "list"} className={layout === "list" ? "selected" : ""} onClick={() => setLayout("list")}><List /></Button></div></div></div>
+        <div className="collection-toolbar"><label className="search-field"><Search size={17} /><input aria-label="Search notes" value={search} onChange={e => setSearch(e.target.value)} placeholder="Find a thought…" />{search && <Button variant="ghost" size="icon" aria-label="Clear search" onClick={() => setSearch("")}><X /></Button>}</label><div className="toolbar-right"><label className="sort-control"><span className="sr-only">Sort notes</span><select aria-label="Sort notes" value={sortOrder} onChange={e => setSortOrder(e.target.value as "updated" | "oldest" | "title")}><option value="updated">Last edited</option><option value="oldest">Oldest edited</option><option value="title">Title A–Z</option></select><ChevronDown size={14} aria-hidden="true" /></label><div className="view-toggle"><Button variant="ghost" size="icon" aria-label="Grid view" aria-pressed={layout === "grid"} className={layout === "grid" ? "selected" : ""} onClick={() => setLayout("grid")}><Grid2X2 /></Button><Button variant="ghost" size="icon" aria-label="List view" aria-pressed={layout === "list"} className={layout === "list" ? "selected" : ""} onClick={() => setLayout("list")}><List /></Button></div></div></div>
         {tagFilter && <div className="filter-line">Tagged #{tagFilter}<Button variant="ghost" size="icon" aria-label="Clear tag filter" onClick={() => setTagFilter(null)}><X /></Button></div>}
         {visible.length > 0 ? <div className={`note-collection ${layout}`}>
           {visible.map((n, i) => <article key={n.id} className={`note-card tone-${CAT_COLORS[n.category ? Math.max(0, cats.findIndex(c => c.name === n.category)) % CAT_COLORS.length : i % CAT_COLORS.length]}`}><div className="note-card-top"><span><Folder size={13} />{n.category || "Loose thoughts"}</span><Button variant="ghost" size="icon" aria-label={`${n.pinned ? "Unpin" : "Pin"} ${n.title}`} onClick={() => pin(n.id)} className={n.pinned ? "is-pinned" : ""}><Pin size={15} /></Button></div><Button variant="ghost" className="note-open" onClick={() => setEditing(n)}><h3>{n.title}</h3><p>{n.content || "A fresh page, waiting for a thought."}</p></Button><div className="note-card-footer"><div className="note-tags">{n.tags.slice(0, 2).map(t => <span key={t}>#{t}</span>)}</div><span>{relativeTime(n.updatedAt)}</span></div></article>)}
@@ -83,6 +128,7 @@ function NotebookApp() {
         <footer className="collection-footer"><span><span className="footer-dot" /> A small space for a busy mind.</span><span>Made for the everyday.</span></footer>
       </main>
     </div>
+    <Dialog open={storageDialog} onOpenChange={setStorageDialog}><DialogContent className="bg-surface"><DialogTitle>Your notebook storage</DialogTitle><DialogDescription>Saved in this browser on this device.</DialogDescription><div className="space-y-2 text-sm text-muted-foreground"><p>{notes.length} {notes.length === 1 ? "note" : "notes"} and {cats.length} {cats.length === 1 ? "collection" : "collections"} stored locally.</p><p>Clearing this browser’s site data may remove these notes. Download a backup to keep a copy.</p></div><Button variant="outline" onClick={exportBackup}><ArrowDownToLine />Download backup</Button></DialogContent></Dialog>
     <Dialog open={catDialog} onOpenChange={setCatDialog}><DialogContent className="bg-surface"><DialogTitle>Give your thoughts a home.</DialogTitle><DialogDescription>A new collection</DialogDescription><form onSubmit={addCategory}><input autoFocus aria-label="Collection name" placeholder="e.g. Ideas, Work, Life…" value={newCat} onChange={e => { setNewCat(e.target.value); setCatError(""); }} className="collection-input" />{catError && <p role="alert" className="text-destructive text-sm my-2">{catError}</p>}<Button type="submit" className="mt-4"><Plus />Create collection</Button></form></DialogContent></Dialog>
     <Dialog open={!!editing} onOpenChange={open => { if (!open) setEditing(null); }}><DialogContent className="editor-dialog" aria-describedby={undefined}><DialogTitle className="sr-only">Note editor</DialogTitle>{editing && <Editor key={"id" in editing ? editing.id : "new"} initial={editing} cats={cats} onSave={save} onPin={pin} onDelete={id => { if (confirm("Delete this note? This can't be undone.")) { setNotes(p => p.filter(n => n.id !== id)); setEditing(null); } }} currentNote={"id" in editing ? notes.find(n => n.id === editing.id) : undefined} />}</DialogContent></Dialog>
   </div>;
@@ -99,6 +145,24 @@ function Editor({ initial, cats, onSave, onPin, onDelete, currentNote }: { initi
   useEffect(() => () => { clearTimeout(timer.current); if (pending.current && id) saveRef.current(pending.current, id); }, [id]);
   const change = (patch: Partial<Draft>) => { const next = { ...draft, ...patch }; setDraft(next); setError(""); if (!id) return; clearTimeout(timer.current); if (!next.title.trim()) { pending.current = null; setError("Give this thought a title."); return; } pending.current = { ...next, title: next.title.trim() }; setStatus("Saving…"); timer.current = setTimeout(() => { if (pending.current) { saveRef.current(pending.current, id); pending.current = null; setStatus("Saved on this device"); } }, 600); };
   const commitTags = () => { if (tagInput.trim()) change({ tags: addTags(draft.tags, tagInput) }); setTagInput(""); };
-  const exportNote = () => { const blob = new Blob([`${draft.title}\n\n${draft.content}\n\n${draft.tags.map(t => `#${t}`).join(" ")}`], { type: "text/plain" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `${draft.title || "note"}.txt`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); };
+  const exportNote = () => {
+    const tags = addTags(draft.tags, tagInput);
+    const metadata = [
+      ...(id ? [`id: ${JSON.stringify(id)}`] : []),
+      `title: ${JSON.stringify(draft.title.trim())}`,
+      `category: ${JSON.stringify(draft.category)}`,
+      `tags: ${JSON.stringify(tags)}`,
+      ...(currentNote ? [`pinned: ${currentNote.pinned}`, `createdAt: ${currentNote.createdAt}`, `updatedAt: ${currentNote.updatedAt}`] : []),
+    ].join("\n");
+    const markdown = `---\n${metadata}\n---\n\n${draft.content}\n${tags.length ? `\n${tags.map(t => `#${t}`).join(" ")}\n` : ""}`;
+    const filename = (draft.title.trim() || "note").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").slice(0, 80);
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${filename}.md`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   return <div className="editor-inner"><div className="editor-top"><span className="editor-label"><FileText size={15} />{id ? "YOUR NOTE" : "A FRESH PAGE"}</span><div className="flex gap-1">{id && <><Button variant="ghost" size="icon" aria-label={currentNote?.pinned ? "Unpin note" : "Pin note"} title="Pin note" onClick={() => onPin(id)} className={currentNote?.pinned ? "text-primary" : ""}><Pin /></Button><Button variant="ghost" size="icon" aria-label="Delete note" title="Delete note" onClick={() => onDelete(id)}><Trash2 /></Button></>}<Button variant="ghost" size="icon" aria-label="Download note" title="Download note" onClick={exportNote}><ArrowDownToLine /></Button></div></div><input aria-label="Note title" placeholder="A thought starts here…" value={draft.title} onChange={e => change({ title: e.target.value })} className="editor-title" autoFocus={!id} />{error && <p role="alert" className="text-sm text-destructive">{error}</p>}<div className="editor-meta"><select aria-label="Note collection" value={draft.category ?? ""} onChange={e => change({ category: e.target.value || null })}><option value="">Loose thoughts</option>{cats.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}</select><span className="meta-divider" />{draft.tags.map(t => <span className="editor-tag" key={t}>#{t}<Button variant="ghost" size="icon" aria-label={`Remove tag ${t}`} onClick={() => change({ tags: draft.tags.filter(x => x !== t) })}><X /></Button></span>)}<input aria-label="Add tags" placeholder="+ Add tag" value={tagInput} onChange={e => setTagInput(e.target.value)} onBlur={commitTags} onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); commitTags(); } }} /></div><textarea aria-label="Note content" value={draft.content} onChange={e => change({ content: e.target.value })} placeholder="Let your thoughts find their way onto the page…" className="editor-body" /><div className="editor-bottom"><span aria-live="polite"><Check size={14} />{status}</span><span>{draft.content.trim() ? draft.content.trim().split(/\s+/).length : 0} words</span>{!id && <Button onClick={() => { if (!draft.title.trim()) return setError("Give this thought a title."); onSave({ ...draft, title: draft.title.trim(), tags: addTags(draft.tags, tagInput) }); }}>Create note<ArrowRight /></Button>}</div></div>;
 }
