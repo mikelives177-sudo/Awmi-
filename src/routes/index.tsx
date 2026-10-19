@@ -69,7 +69,7 @@ function NotebookApp() {
     const name = newCat.trim();
     if (!name) return setCatError("Give the category a name.");
     if (categoryExists(cats, name)) return setCatError(`A category called "${name}" already exists.`);
-    setCats([...cats, { name, color: CAT_COLORS[cats.length % CAT_COLORS.length] }]);
+    setCats([...cats, { name, color: CAT_COLORS[cats.length % CAT_COLORS.length] ?? "#3D5A47" }]);
     setNewCat(""); setCatError("");
   };
   const deleteCategory = (name: string) => {
