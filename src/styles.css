@@ -18,7 +18,7 @@
   --muted-foreground: #5c584e; --border: #d8d2c2; --primary: #3d5a47; --primary-foreground: #f7f5ef;
   --secondary: color-mix(in oklab, #22201b 5%, #f7f5ef); --accent: color-mix(in oklab, #3d5a47 12%, #f7f5ef); --destructive: #8b3a3a; --sidebar: #2c4234; --overlay: color-mix(in oklab, #22201b 45%, transparent);
   --gold: #a6822c; --gold-foreground: #f7f5ef; --gold-tint: color-mix(in oklab, #a6822c 16%, #f7f5ef); --gold-ink: #7d6118;
-  --sidebar-foreground: #ede9df; --sidebar-muted: color-mix(in oklab, #ede9df 76%, #2c4234); --sidebar-border: color-mix(in oklab, #ede9df 16%, #2c4234); --sidebar-accent: color-mix(in oklab, #ede9df 13%, #2c4234);
+  --sidebar-foreground: #ede9df; --sidebar-muted: color-mix(in oklab, #ede9df 88%, #2c4234); --sidebar-border: color-mix(in oklab, #ede9df 16%, #2c4234); --sidebar-accent: color-mix(in oklab, #ede9df 13%, #2c4234);
   --coral-tint: #f0dfd2; --coral-ink: #a8562f; --blue-tint: #dce3ea; --blue-ink: #3c5a75;
   --green-tint: #dbe5da; --green-ink: #3d5a47; --yellow-tint: #efe3c6; --yellow-ink: #8a6a1f;
   --violet-tint: #e6dcea; --violet-ink: #6a4470; --rose-tint: #eed9da; --rose-ink: #8f3f4a;
